@@ -1,0 +1,305 @@
+
+
+import groovy.json.JsonSlurper
+
+ 
+
+node() {
+
+   
+
+    String[] app_names=[:]
+
+   
+
+    stage('Request to Deploy SIT Environment')
+
+        input message: "Dev images are intended to deploy UAT STAGE?", ok: "Yes, continue!"
+
+ 
+
+   
+
+    stage ('Images are being labeled as *_sit_candidate..')
+
+    {
+
+            script {
+
+                git poll: false, url: 'http://gogs.xxxxxxxxx/devops/tasks.git'
+
+               
+
+                app_names=new File("$env.WORKSPACE/app_names.txt").text.split()              
+
+                
+
+                for (int i=0; i<app_names.length; i++)
+
+                {
+
+                    openshift.withCluster() {
+
+                        openshift.withProject("tosla-dev") {
+
+                            openshift.tag(app_names[i]+":latest", app_names[i]+":ic")
+
+                        }       
+
+                    }
+
+                }
+
+               
+
+            }
+
+    }
+
+   
+
+    stage 'Now, Akbank should approve the deployment..'
+
+        input message: "Do you want to transfer images to SIT?", ok: "Transfer"
+
+   
+
+    
+
+    stage('Taking backup of SIT images..')
+
+    {   
+
+        script {
+
+            for (int i=0; i<app_names.length; i++)
+
+            {
+
+                openshift.withCluster() {
+
+                    openshift.withProject("tosla-int") {
+
+                        openshift.tag(app_names[i]+":latest", app_names[i]+":backup")
+
+                    }       
+
+                }
+
+            }
+
+        }
+
+    }
+
+   
+
+    stage('Labeling Integration-Candidate DEV images as SIT-Latest..')
+
+    {   
+
+        script {
+
+            for (int i=0; i<app_names.length; i++)
+
+            {
+
+                openshift.withCluster() {
+
+                    openshift.withProject() {
+
+                        openshift.tag("tosla-dev/"+app_names[i]+":ic", "tosla-int/"+app_names[i]+":latest")
+
+                    }       
+
+                }
+
+            }
+
+        }
+
+    }
+
+   
+
+    stage('Extracting configmap difference') {
+
+        def namespace1="tosla-dev"
+
+        def cmList1=[]
+
+        def cmParams1=[]
+
+ 
+
+        def namespace2="tosla-int"
+
+        def cmList2=[]
+
+        def cmParams2=[]
+
+       
+
+        cmList1=getConfigMapsList(namespace1)
+
+        cmList2=getConfigMapsList(namespace2)
+
+       
+
+        def cmDiff1=cmList1.minus(cmList2)
+
+        def cmDiff2=cmList2.minus(cmList1)
+
+       
+
+        if(cmDiff1.size>0) {
+
+            println(namespace2+" does not contain following configmaps: ")
+
+            println(cmDiff1)
+
+        } else {
+
+            //println("There is no missing configmap into "+namespace2)
+
+        }
+
+       
+
+        if(cmDiff2.size>0) {
+
+            println(namespace1+" does not contain following configmaps: ")
+
+            println(cmDiff2)
+
+        } else {
+
+            //println("There is no missing configmap into "+namespace1)
+
+        }
+
+       
+
+        def commonConfigmaps=cmList2.intersect(cmList1)
+
+       
+
+        commonConfigmaps.each{
+
+            def keys1=getConfigMapParameters(namespace1,it)
+
+            def keys2=getConfigMapParameters(namespace2,it)
+
+            def diffKeys1=keys1.minus(keys2)
+
+            def diffKeys2=keys2.minus(keys1)
+
+           
+
+            if(diffKeys1.size>0) {
+
+                println(it+" does not contain following keys in "+namespace2)
+
+                println(diffKeys1)
+
+            } else {
+
+                //println("There is no difference at "+it+"configmap into both namespaces") 
+
+            }
+
+           
+
+            if(diffKeys2.size>0) {
+
+                println(it+" does not contain following keys in "+namespace1)
+
+                println(diffKeys2)
+
+            } else {
+
+                //println("There is no difference at "+it+"configmap into both namespaces") 
+
+            }
+
+        }
+
+    }
+
+   
+
+    stage 'Bulk roll-out deployment?'
+
+        input message: "Do you want to rollout all pods in SIT?", ok: "Yes, rollout!!"
+
+       
+
+    stage('Rolling out all images...')
+
+    {   
+
+        script {
+
+            for (int i=0; i<app_names.length; i++)
+
+            {
+
+                sh "oc rollout latest dc/"+app_names[i]+" -n tosla-int"
+
+            }
+
+        }
+
+    }
+
+   
+
+}
+
+ 
+
+def getConfigMapsList(String ns) {
+
+        def configmapsJson=("oc get cm -o json "+"-n "+ns).execute().text
+
+       
+
+        def jsonSlurper = new JsonSlurper()
+
+        def object = jsonSlurper.parseText(configmapsJson)
+
+       
+
+        return object.items.metadata.name
+
+}
+
+ 
+
+def getConfigMapParameters(String ns, String cm) {
+
+        def configmapsJson=("oc get cm "+cm+" -o json "+"-n "+ns).execute().text
+
+       
+
+        def jsonSlurper = new JsonSlurper()
+
+        def object = jsonSlurper.parseText(configmapsJson)
+
+        def keyList=[]
+
+       
+
+        object.data.each {
+
+            keyList.add(it.key)
+
+        }
+
+       
+
+        return keyList
+
+}
+
+
