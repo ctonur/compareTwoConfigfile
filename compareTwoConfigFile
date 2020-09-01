@@ -58,7 +58,7 @@ node() {
 
    
 
-    stage 'Now, Akbank should approve the deployment..'
+    stage 'Now, it should approve the deployment..'
 
         input message: "Do you want to transfer images to SIT?", ok: "Transfer"
 
@@ -78,7 +78,7 @@ node() {
 
                 openshift.withCluster() {
 
-                    openshift.withProject("tosla-int") {
+                    openshift.withProject("int") {
 
                         openshift.tag(app_names[i]+":latest", app_names[i]+":backup")
 
@@ -108,7 +108,7 @@ node() {
 
                     openshift.withProject() {
 
-                        openshift.tag("tosla-dev/"+app_names[i]+":ic", "tosla-int/"+app_names[i]+":latest")
+                        openshift.tag("dev/"+app_names[i]+":ic", "int/"+app_names[i]+":latest")
 
                     }       
 
@@ -124,7 +124,7 @@ node() {
 
     stage('Extracting configmap difference') {
 
-        def namespace1="tosla-dev"
+        def namespace1="dev"
 
         def cmList1=[]
 
@@ -132,7 +132,7 @@ node() {
 
  
 
-        def namespace2="tosla-int"
+        def namespace2="int"
 
         def cmList2=[]
 
@@ -244,7 +244,7 @@ node() {
 
             {
 
-                sh "oc rollout latest dc/"+app_names[i]+" -n tosla-int"
+                sh "oc rollout latest dc/"+app_names[i]+" -n int"
 
             }
 
